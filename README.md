@@ -77,3 +77,7 @@ Garanzie:
 - **Ogni nuovo nome dà due popup**, a meno di `ALLOW_DNS=1`: prima la query DNS (che mostra già il nome), poi la connessione.
 - **La porta dell'interfaccia è raggiungibile dall'agente.** L'agente può collegarsi e fingersi un altro demone: comparirebbe solo come nodo in più, senza poter approvare le proprie richieste.
 - **Provato su Fedora/Bazzite** (SELinux, podman 5.8). Su altre distribuzioni e con X11 non è ancora stato provato.
+
+## Licenza
+
+MIT, vedi [LICENSE](LICENSE). OpenSnitch, pi e OpenCode, installati nelle immagini, hanno le loro licenze.
