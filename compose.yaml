@@ -3,6 +3,7 @@
 #
 #   cd ~/my-project
 #   agent-box            # pi       (wrapper around: podman-compose -f compose.yaml run --rm agent)
+#   agent-box opencode   # OpenCode
 #   agent-box bash       # a shell in the same box
 #   podman-compose -f /path/to/agent-box/compose.yaml down    # stop the popup UI
 name: agent-box
@@ -11,8 +12,9 @@ services:
   # Approval popups. Owns the network the agent uses; can't see the agent's files or processes,
   # and the agent can't see this container or the Wayland socket.
   ui:
+    # prebuilt image; podman-compose builds it locally if it can't be pulled
+    image: ghcr.io/morrolinux/agent-box-ui:latest
     build: {context: ., target: ui}
-    image: localhost/agent-box-ui:latest
     container_name: agent-box-ui
     userns_mode: keep-id
     # 169.254.1.3 inside the box is the host's 127.0.0.1 (local model server)
@@ -25,8 +27,8 @@ services:
   # The agent, plus the OpenSnitch daemon that filters its network. The entrypoint starts the
   # daemon as root, then runs the agent as your user with no capabilities.
   agent:
+    image: ghcr.io/morrolinux/agent-box:latest
     build: {context: ., target: agent}
-    image: localhost/agent-box:latest
     depends_on: [ui]
     userns_mode: container:agent-box-ui
     network_mode: container:agent-box-ui
@@ -41,9 +43,16 @@ services:
       MODEL_ID: ${MODEL_ID:-}
       MODEL_CONTEXT: ${MODEL_CONTEXT:-32768}
       MODEL_API_KEY: ${MODEL_API_KEY:-}
+      # 1 = DNS lookups go through without a popup (but DNS can carry small amounts of data out)
+      ALLOW_DNS: ${ALLOW_DNS:-0}
     # the current folder, at the same path as on the host (use the agent-box wrapper: it refuses $HOME, / etc.)
     working_dir: ${PWD}
     volumes:
       - ${PWD}:${PWD}:z
+      # rules you answer "always" to; reset with: podman volume rm agent-box_rules
+      - rules:/etc/opensnitchd/rules
     stdin_open: true
     tty: true
+
+volumes:
+  rules:

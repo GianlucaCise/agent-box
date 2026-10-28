@@ -1,6 +1,7 @@
 #!/bin/bash
 # Run the agent box on the current folder, mounted at the same path inside.
 #   agent-box            # pi on the local model
+#   agent-box opencode   # OpenCode
 #   agent-box bash       # a shell in the same box
 #
 # The folder gets SELinux-relabelled (:z) and fully exposed to the agent, so refuse

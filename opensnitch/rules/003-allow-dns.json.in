@@ -1,0 +1,33 @@
+{
+  "created": "2026-10-28T00:00:00Z",
+  "updated": "2026-10-28T00:00:00Z",
+  "name": "003-allow-dns",
+  "description": "DNS queries to the box's resolvers (ALLOW_DNS=1): no popup for lookups, but DNS can carry small amounts of data out",
+  "action": "allow",
+  "duration": "always",
+  "enabled": true,
+  "precedence": true,
+  "nolog": true,
+  "operator": {
+    "type": "list",
+    "operand": "list",
+    "data": "",
+    "sensitive": false,
+    "list": [
+      {
+        "type": "regexp",
+        "operand": "dest.ip",
+        "data": "set by the entrypoint",
+        "sensitive": false,
+        "list": null
+      },
+      {
+        "type": "simple",
+        "operand": "dest.port",
+        "data": "53",
+        "sensitive": false,
+        "list": null
+      }
+    ]
+  }
+}

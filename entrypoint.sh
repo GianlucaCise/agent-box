@@ -12,10 +12,21 @@ fi
 MODEL_PORT=${MODEL_PORT:-8080}
 MODEL_ID=${MODEL_ID:-}
 MODEL_CONTEXT=${MODEL_CONTEXT:-32768}
-RULES=/etc/opensnitchd/rules
+MODEL_OUTPUT=$(( MODEL_CONTEXT / 4 < 32768 ? MODEL_CONTEXT / 4 : 32768 ))
+MODEL_URL="http://169.254.1.3:$MODEL_PORT/v1"
+BUILTIN=/usr/share/agent-box/rules
+RULES=/etc/opensnitchd/rules   # a volume: rules you answer "always" to are kept here
 
-sed "s/@MODEL_PORT@/$MODEL_PORT/" "$RULES/002-allow-model.json.in" > "$RULES/002-allow-model.json"
-rm "$RULES/002-allow-model.json.in"
+# built-in rules, refreshed on every start
+cp "$BUILTIN"/*.json "$RULES/"
+sed "s/@MODEL_PORT@/$MODEL_PORT/" "$BUILTIN/002-allow-model.json.in" > "$RULES/002-allow-model.json"
+if [[ "${ALLOW_DNS:-0}" == 1 ]]; then
+  resolvers=$(awk '$1 == "nameserver" {printf "%s%s", sep, $2; sep="|"}' /etc/resolv.conf)
+  jq --arg re "^(${resolvers//./\\.})\$" '.operator.list[0].data = $re' \
+    "$BUILTIN/003-allow-dns.json.in" > "$RULES/003-allow-dns.json"
+else
+  rm -f "$RULES/003-allow-dns.json"
+fi
 
 opensnitchd -config-file /etc/opensnitchd/default-config.json -rules-path "$RULES" -log-file /var/log/opensnitchd.log &
 
@@ -31,27 +42,40 @@ if ! queue_rule_in_place; then
   exit 1
 fi
 
-# pi config for the OpenAI-compatible model server on the host's 127.0.0.1:$MODEL_PORT
+# agent configs for the OpenAI-compatible model server on the host's 127.0.0.1:$MODEL_PORT
 AGENT_HOME=/home/agent
-mkdir -p "$AGENT_HOME/.pi/agent"
+mkdir -p "$AGENT_HOME/.pi/agent" "$AGENT_HOME/.config/opencode"
 if [[ -n "$MODEL_ID" ]]; then
-  jq -n --arg url "http://169.254.1.3:$MODEL_PORT/v1" --arg key "${MODEL_API_KEY:-none}" --arg id "$MODEL_ID" \
-    --argjson ctx "$MODEL_CONTEXT" \
+  jq -n --arg url "$MODEL_URL" --arg key "${MODEL_API_KEY:-none}" --arg id "$MODEL_ID" \
+    --argjson ctx "$MODEL_CONTEXT" --argjson out "$MODEL_OUTPUT" \
     '{providers: {local: {baseUrl: $url, api: "openai-completions", apiKey: $key,
-      models: [{id: $id, contextWindow: $ctx, maxTokens: ([$ctx / 4, 32768] | min | floor), reasoning: true}]}}}' \
+      models: [{id: $id, contextWindow: $ctx, maxTokens: $out, reasoning: true}]}}}' \
     > "$AGENT_HOME/.pi/agent/models.json"
+  jq -n --arg url "$MODEL_URL" --arg key "${MODEL_API_KEY:-none}" --arg id "$MODEL_ID" \
+    --argjson ctx "$MODEL_CONTEXT" --argjson out "$MODEL_OUTPUT" \
+    '{"$schema": "https://opencode.ai/config.json",
+      providers: {local: {name: "local", package: "@opencode/ai/providers/openai-compatible",
+        settings: {baseURL: $url, apiKey: $key},
+        models: {model: {modelID: $id, name: $id,
+          capabilities: {tools: true, input: ["text"], output: ["text"]},
+          limit: {context: $ctx, output: $out}}}}},
+      model: "local/model"}' \
+    > "$AGENT_HOME/.config/opencode/opencode.json"
 fi
 chown -R "$HOST_UID:$HOST_GID" "$AGENT_HOME"
 chmod 700 "$AGENT_HOME"
 
-if [[ "$*" == pi ]]; then
-  if [[ -z "$MODEL_ID" ]]; then
-    echo "agent-box: set MODEL_ID to the model name your server on 127.0.0.1:$MODEL_PORT serves" >&2; exit 1
-  fi
-  set -- pi --model "local/$MODEL_ID"
-fi
+case "$*" in
+  pi|opencode)
+    if [[ -z "$MODEL_ID" ]]; then
+      echo "agent-box: set MODEL_ID to the model name your server on 127.0.0.1:$MODEL_PORT serves" >&2; exit 1
+    fi
+    [[ "$*" == pi ]] && set -- pi --model "local/$MODEL_ID"
+    ;;
+esac
 
 cd "$WORKDIR"
 exec setpriv --reuid="$HOST_UID" --regid="$HOST_GID" --clear-groups \
   --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
-  env -u MODEL_API_KEY HOME="$AGENT_HOME" "$@"
+  env -u MODEL_API_KEY HOME="$AGENT_HOME" \
+    OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_MODELS_FETCH=1 "$@"

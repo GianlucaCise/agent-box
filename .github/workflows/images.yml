@@ -1,0 +1,60 @@
+# Build both images and push them to ghcr.io, signed with cosign (keyless, GitHub OIDC).
+# Weekly rebuild picks up Fedora and OpenSnitch updates.
+name: images
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - target: agent
+            image: ghcr.io/${{ github.repository }}
+          - target: ui
+            image: ghcr.io/${{ github.repository }}-ui
+    env:
+      # one auth file shared by podman and cosign
+      REGISTRY_AUTH_FILE: ${{ github.workspace }}/.auth.json
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GH_TOKEN" > "$RUNNER_TEMP/gh_token"
+          podman build --target "${{ matrix.target }}" --secret id=gh_token,src="$RUNNER_TEMP/gh_token" \
+            -t "${{ matrix.image }}:latest" -t "${{ matrix.image }}:${{ github.sha }}" .
+          rm -f "$RUNNER_TEMP/gh_token"
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: |
+          podman push --digestfile digest "${{ matrix.image }}:latest"
+          podman push "${{ matrix.image }}:${{ github.sha }}"
+          echo "DIGEST=$(cat digest)" >> "$GITHUB_ENV"
+
+      - name: Sign
+        if: github.event_name != 'pull_request'
+        env:
+          DOCKER_CONFIG: ${{ github.workspace }}/.docker
+        run: |
+          mkdir -p "$DOCKER_CONFIG" && cp "$REGISTRY_AUTH_FILE" "$DOCKER_CONFIG/config.json"
+          cosign sign --yes "${{ matrix.image }}@${DIGEST}"

@@ -1,6 +1,6 @@
 # agent-box
 
-Esegui un agente di programmazione ([pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) con un modello locale, dentro un container dove **ogni connessione di rete deve essere approvata da te**.
+Esegui un agente di programmazione ([pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) o [OpenCode](https://opencode.ai)) con un modello locale, dentro un container dove **ogni connessione di rete deve essere approvata da te**.
 Ogni richiesta compare in un popup di [OpenSnitch](https://github.com/evilsocket/opensnitch) che mostra il processo vero (`curl`, `node`, …), i suoi argomenti e la destinazione.
 L'unica eccezione è il server del modello, sulla porta che indichi tu.
 
@@ -24,18 +24,35 @@ export MODEL_ID=nome-del-modello   # come lo chiama il tuo server
 export MODEL_PORT=8080             # porta del server su 127.0.0.1 (ollama: 11434, LM Studio: 1234)
 
 cd ~/un-progetto
-agent-box          # avvia pi nella cartella corrente
-agent-box bash     # una shell nella stessa scatola, per provare (es. `curl https://example.com`)
+agent-box            # avvia pi nella cartella corrente
+agent-box opencode   # oppure OpenCode
+agent-box bash       # una shell nella stessa scatola, per provare (es. `curl https://example.com`)
 ```
 
-Al primo avvio vengono costruite le due immagini: servono alcuni minuti.
+Al primo avvio vengono scaricate le due immagini da `ghcr.io/morrolinux` (circa 2 GB in tutto).
+Se il download non riesce, vengono costruite in locale dal `Containerfile`: servono alcuni minuti.
+Le immagini sono firmate con cosign, puoi verificarle con:
+
+```sh
+cosign verify ghcr.io/morrolinux/agent-box:latest \
+  --certificate-identity-regexp '^https://github.com/morrolinux/agent-box/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Per costruirle sempre in locale: `podman-compose -f ~/agent-box/compose.yaml build`.
 Per chiudere l'interfaccia dei popup: `podman-compose -f ~/agent-box/compose.yaml down`.
 
 Altre variabili:
 - `MODEL_API_KEY`, se il server la richiede;
-- `MODEL_CONTEXT`: contesto del modello in token, default 32768.
+- `MODEL_CONTEXT`: contesto del modello in token, default 32768;
+- `ALLOW_DNS=1`: le query DNS passano senza popup.
+  È più comodo, ma il DNS può servire a far uscire piccole quantità di dati: lascialo spento se vuoi vedere tutto.
 
 I popup, se non rispondi entro 30 secondi, negano la connessione. La durata predefinita è "una volta".
+Le risposte "sempre" vengono salvate e valgono anche ai prossimi avvii.
+Per azzerarle: `podman volume rm agent-box_rules`.
+
+All'avvio pi e OpenCode non cercano aggiornamenti e non scaricano l'elenco dei modelli: nessun popup finché l'agente non fa qualcosa.
 
 La cartella corrente è montata nella scatola **allo stesso percorso** ed è l'unica parte del tuo disco che l'agente vede.
 Viene rietichettata per SELinux (`:z`), per questo `agent-box` si rifiuta di partire da `/`, dalle cartelle di sistema, dalla home, dalle cartelle che la contengono e dalle sue cartelle nascoste.
@@ -57,7 +74,6 @@ Garanzie:
 
 - **Il kernel è quello dell'host.** Servono i moduli `nft_queue` e `nfnetlink_queue`, standard in tutte le distribuzioni. Se non vengono caricati da soli: `sudo modprobe nft_queue nfnetlink_queue`.
 - **Non è una macchina virtuale.** Non protegge da exploit del kernel.
-- **Ogni nuovo nome dà due popup:** prima la query DNS (che mostra già il nome), poi la connessione.
-- **Le regole "sempre" non sopravvivono:** le risposte di questo tipo valgono solo fino a quando chiudi l'agente.
+- **Ogni nuovo nome dà due popup**, a meno di `ALLOW_DNS=1`: prima la query DNS (che mostra già il nome), poi la connessione.
 - **La porta dell'interfaccia è raggiungibile dall'agente.** L'agente può collegarsi e fingersi un altro demone: comparirebbe solo come nodo in più, senza poter approvare le proprie richieste.
 - **Provato su Fedora/Bazzite** (SELinux, podman 5.8). Su altre distribuzioni e con X11 non è ancora stato provato.
