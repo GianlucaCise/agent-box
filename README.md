@@ -76,6 +76,7 @@ Due container che condividono la rete:
 Garanzie:
 - se il demone non sta filtrando, l'agente non parte;
 - se il demone muore, non esce più niente;
+- se il demone si blocca (con OpenSnitch 1.8.0 capita dopo un popup), dopo 5 secondi viene riavviato, e finché non è di nuovo pronto non esce niente. Lo stato delle sue goroutine al momento del blocco finisce in `/var/log/opensnitchd.stderr` nella scatola;
 - l'agente non può modificare il firewall, né fermare o ispezionare il demone, né scrivere regole;
 - svuotare l'ambiente (`env -i`) o creare namespace (`unshare`) non serve per aggirarlo.
 

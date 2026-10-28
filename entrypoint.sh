@@ -34,17 +34,59 @@ if awk '$1 == 0 {found = 1} END {exit !found}' /proc/net/netfilter/nfnetlink_que
   echo "agent-box: another agent-box is already running (only one at a time)" >&2; exit 1
 fi
 
-opensnitchd -config-file /etc/opensnitchd/default-config.json -rules-path "$RULES" -log-file /var/log/opensnitchd.log &
+LOG=/var/log/opensnitchd.log
+queue_rule_in_place() { [[ "$(nft list chain inet opensnitch mangle_output 2>/dev/null)" == *"syn queue to"* ]]; }
+# packets in queue 0 still waiting for a verdict; a huge number when no daemon is bound to it
+queue_backlog() { awk '$1 == 0 {print $3; found = 1} END {if (!found) print 999999}' /proc/net/netfilter/nfnetlink_queue; }
+
+# OpenSnitch 1.8.0 can wedge after a prompt: it stops giving verdicts, and every new connection
+# (the model's too) waits in queue 0 until it times out. Normally queue 0 drains at once, even
+# during a prompt (the prompted packet moves to queue 1), so a backlog that doesn't shrink for 5s
+# means a stuck daemon: dump its goroutines (GOTRACEBACK=all, in opensnitchd.stderr) and start a
+# new one. A starting daemon deletes and re-adds its queue rules, so a drop-all table covers the gap.
+supervise_daemon() {
+  set +e
+  local pid backlog prev=0 stuck=0
+  start() { GOTRACEBACK=all opensnitchd -config-file /etc/opensnitchd/default-config.json \
+      -rules-path "$RULES" -log-file "$LOG" >>/var/log/opensnitchd.stderr 2>&1 & pid=$!; }
+  start
+  while sleep 1; do
+    backlog=$(queue_backlog)
+    if (( backlog > 0 && backlog >= prev )); then (( stuck++ )); else stuck=0; fi
+    prev=$backlog
+    (( stuck >= 5 )) || continue
+    echo "agent-box: opensnitchd stopped answering, restarting it" >>"$LOG"
+    nft -f - <<'EOF'
+table inet agentbox_guard {
+  chain output { type filter hook output priority -400; policy drop; oifname "lo" accept; }
+}
+EOF
+    kill -ABRT "$pid" 2>/dev/null
+    ( sleep 5; kill -KILL "$pid" 2>/dev/null ) &
+    wait "$pid"
+    start
+    for _ in $(seq 50); do
+      queue_rule_in_place && (( $(queue_backlog) != 999999 )) && break
+      sleep 0.2
+    done
+    if queue_rule_in_place && (( $(queue_backlog) != 999999 )); then
+      nft delete table inet agentbox_guard
+    else
+      echo "agent-box: the new opensnitchd didn't come up, all traffic stays blocked" >>"$LOG"
+    fi
+    stuck=0 prev=0
+  done
+}
+supervise_daemon &
 
 # fail closed: don't start the agent unless the daemon's queue rule is in place
-queue_rule_in_place() { [[ "$(nft list chain inet opensnitch mangle_output 2>/dev/null)" == *"syn queue to"* ]]; }
 for _ in $(seq 50); do
   queue_rule_in_place && break
   sleep 0.2
 done
 if ! queue_rule_in_place; then
   echo "agent-box: opensnitchd did not install its firewall rules" >&2
-  tail -20 /var/log/opensnitchd.log >&2 || true
+  tail -20 "$LOG" >&2 || true
   exit 1
 fi
 
