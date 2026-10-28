@@ -1,0 +1,33 @@
+#!/bin/bash
+# Run the agent box on the current folder, mounted at the same path inside.
+#   agent-box            # pi on the local model
+#   agent-box bash       # a shell in the same box
+#
+# The folder gets SELinux-relabelled (:z) and fully exposed to the agent, so refuse
+# anything that isn't a project folder: /, system dirs, $HOME, its parents, its dot-dirs.
+set -euo pipefail
+
+here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+dir=$(pwd -P)
+home=$(readlink -f "$HOME")
+
+refuse() { echo "agent-box: refusing to mount $dir: $1. cd into a project folder." >&2; exit 1; }
+
+case "$dir" in
+  /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/media|/mnt|/opt|/proc|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/var|/var/home)
+    refuse "system directory" ;;
+  /boot/*|/dev/*|/etc/*|/proc/*|/run/*|/sys/*|/usr/*)
+    refuse "inside a system directory" ;;
+esac
+[[ "$dir" == "$home" ]] && refuse "it's your home"
+[[ "$home/" == "$dir/"* ]] && refuse "it contains your home"
+[[ "$dir" == "$home"/.* ]] && refuse "it's inside a hidden folder of your home"
+[[ -O "$dir" ]] || refuse "it isn't owned by you"
+
+command -v podman-compose >/dev/null || { echo "agent-box: podman-compose not found" >&2; exit 1; }
+[[ -n "${WAYLAND_DISPLAY:-}" && -S "${XDG_RUNTIME_DIR:-}/${WAYLAND_DISPLAY}" ]] \
+  || { echo "agent-box: no Wayland session (the approval popups need one)" >&2; exit 1; }
+
+# checks above use the real path; mount at the path you see (on Bazzite /home -> /var/home)
+export PWD="$(pwd -L)"
+exec podman-compose -f "$here/compose.yaml" run --rm agent "$@"

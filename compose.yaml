@@ -1,0 +1,49 @@
+# Coding agent in a box: every connection it opens must be approved in an OpenSnitch popup.
+# Needs rootless podman + podman-compose and a Wayland desktop.
+#
+#   cd ~/my-project
+#   agent-box            # pi       (wrapper around: podman-compose -f compose.yaml run --rm agent)
+#   agent-box bash       # a shell in the same box
+#   podman-compose -f /path/to/agent-box/compose.yaml down    # stop the popup UI
+name: agent-box
+
+services:
+  # Approval popups. Owns the network the agent uses; can't see the agent's files or processes,
+  # and the agent can't see this container or the Wayland socket.
+  ui:
+    build: {context: ., target: ui}
+    image: localhost/agent-box-ui:latest
+    container_name: agent-box-ui
+    userns_mode: keep-id
+    # 169.254.1.3 inside the box is the host's 127.0.0.1 (local model server)
+    network_mode: "pasta:--map-host-loopback,169.254.1.3"
+    cap_drop: [ALL]
+    security_opt: [label=disable]   # SELinux would block the Wayland socket
+    volumes:
+      - ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY:-wayland-0}:/tmp/wayland-0
+
+  # The agent, plus the OpenSnitch daemon that filters its network. The entrypoint starts the
+  # daemon as root, then runs the agent as your user with no capabilities.
+  agent:
+    build: {context: ., target: agent}
+    image: localhost/agent-box:latest
+    depends_on: [ui]
+    userns_mode: container:agent-box-ui
+    network_mode: container:agent-box-ui
+    user: "0"
+    init: true
+    cap_drop: [ALL]
+    # NET_ADMIN: firewall + queue; SYS_PTRACE: map sockets to processes; the rest: drop to your user
+    cap_add: [NET_ADMIN, SYS_PTRACE, CHOWN, SETUID, SETGID, SETPCAP, DAC_OVERRIDE, FOWNER]
+    environment:
+      # OpenAI-compatible server on the host's 127.0.0.1 (llama.cpp, ollama, LM Studio, vLLM...)
+      MODEL_PORT: ${MODEL_PORT:-8080}
+      MODEL_ID: ${MODEL_ID:-}
+      MODEL_CONTEXT: ${MODEL_CONTEXT:-32768}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+    # the current folder, at the same path as on the host (use the agent-box wrapper: it refuses $HOME, / etc.)
+    working_dir: ${PWD}
+    volumes:
+      - ${PWD}:${PWD}:z
+    stdin_open: true
+    tty: true

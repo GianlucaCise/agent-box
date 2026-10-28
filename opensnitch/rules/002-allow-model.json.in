@@ -1,0 +1,33 @@
+{
+  "created": "2026-10-28T00:00:00Z",
+  "updated": "2026-10-28T00:00:00Z",
+  "name": "002-allow-model",
+  "description": "The local model server on the host",
+  "action": "allow",
+  "duration": "always",
+  "enabled": true,
+  "precedence": true,
+  "nolog": true,
+  "operator": {
+    "type": "list",
+    "operand": "list",
+    "data": "",
+    "sensitive": false,
+    "list": [
+      {
+        "type": "simple",
+        "operand": "dest.ip",
+        "data": "169.254.1.3",
+        "sensitive": false,
+        "list": null
+      },
+      {
+        "type": "simple",
+        "operand": "dest.port",
+        "data": "@MODEL_PORT@",
+        "sensitive": false,
+        "list": null
+      }
+    ]
+  }
+}
