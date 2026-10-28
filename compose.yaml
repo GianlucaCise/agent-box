@@ -45,6 +45,8 @@ services:
       MODEL_API_KEY: ${MODEL_API_KEY:-}
       # 1 = DNS lookups go through without a popup (but DNS can carry small amounts of data out)
       ALLOW_DNS: ${ALLOW_DNS:-0}
+      # dsh-tui speaks English or Chinese (zh, its default)
+      DSH_TUI_LANG: ${DSH_TUI_LANG:-en}
     # the current folder, at the same path as on the host (use the agent-box wrapper: it refuses $HOME, / etc.)
     working_dir: ${PWD}
     volumes:

@@ -28,6 +28,12 @@ else
   rm -f "$RULES/003-allow-dns.json"
 fi
 
+# every box shares the ui container's network: a second daemon couldn't bind queue 0, yet the first
+# one's firewall rules would pass the check below, and would vanish when that box exits
+if awk '$1 == 0 {found = 1} END {exit !found}' /proc/net/netfilter/nfnetlink_queue 2>/dev/null; then
+  echo "agent-box: another agent-box is already running (only one at a time)" >&2; exit 1
+fi
+
 opensnitchd -config-file /etc/opensnitchd/default-config.json -rules-path "$RULES" -log-file /var/log/opensnitchd.log &
 
 # fail closed: don't start the agent unless the daemon's queue rule is in place
@@ -44,7 +50,9 @@ fi
 
 # agent configs for the OpenAI-compatible model server on the host's 127.0.0.1:$MODEL_PORT
 AGENT_HOME=/home/agent
-mkdir -p "$AGENT_HOME/.pi/agent" "$AGENT_HOME/.config/opencode"
+mkdir -p "$AGENT_HOME/.pi/agent" "$AGENT_HOME/.config/opencode" "$AGENT_HOME/.dsh" "$AGENT_HOME/.dsh-tui"
+# dsh-tui's first-run guide asks for an API key and a model, both already set up here
+echo '{"completed": true, "version": 1}' > "$AGENT_HOME/.dsh-tui/onboarding.json"
 if [[ -n "$MODEL_ID" ]]; then
   jq -n --arg url "$MODEL_URL" --arg key "${MODEL_API_KEY:-none}" --arg id "$MODEL_ID" \
     --argjson ctx "$MODEL_CONTEXT" --argjson out "$MODEL_OUTPUT" \
@@ -61,21 +69,33 @@ if [[ -n "$MODEL_ID" ]]; then
           limit: {context: $ctx, output: $out}}}}},
       model: "local/model"}' \
     > "$AGENT_HOME/.config/opencode/opencode.json"
+  # dsh reads its key only from an environment variable (JSON is valid YAML)
+  jq -n --arg url "$MODEL_URL" --arg id "$MODEL_ID" \
+    --argjson ctx "$MODEL_CONTEXT" --argjson out "$MODEL_OUTPUT" \
+    '[{id: "llm-pi-ai", config: {providers: {local: {displayName: "local", apiKeyEnv: "LOCAL_MODEL_API_KEY",
+        api: "openai-completions", baseURL: $url,
+        models: [{id: $id, name: $id, contextWindow: $ctx, maxTokens: $out}]}}}},
+      {id: "agent-default-model", config: {provider: "local", model: $id}}]' \
+    > "$AGENT_HOME/.dsh/cordis.patch.yml"
 fi
-chown -R "$HOST_UID:$HOST_GID" "$AGENT_HOME"
+# dsh's plugin profiles come with the image: their node_modules stay root-owned and read-only
+find "$AGENT_HOME" -path "$AGENT_HOME/.dsh/profiles/*/node_modules" -prune -o -exec chown -h "$HOST_UID:$HOST_GID" {} +
 chmod 700 "$AGENT_HOME"
 
-case "$*" in
-  pi|opencode)
+agent_env=()
+case "${1:-}" in
+  pi|opencode|dsh)
     if [[ -z "$MODEL_ID" ]]; then
       echo "agent-box: set MODEL_ID to the model name your server on 127.0.0.1:$MODEL_PORT serves" >&2; exit 1
     fi
     [[ "$*" == pi ]] && set -- pi --model "local/$MODEL_ID"
+    [[ "$*" == dsh ]] && set -- dsh dsh-tui
+    [[ "$1" == dsh ]] && agent_env=(LOCAL_MODEL_API_KEY="${MODEL_API_KEY:-none}")
     ;;
 esac
 
 cd "$WORKDIR"
 exec setpriv --reuid="$HOST_UID" --regid="$HOST_GID" --clear-groups \
   --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
-  env -u MODEL_API_KEY HOME="$AGENT_HOME" \
-    OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_MODELS_FETCH=1 "$@"
+  env -u MODEL_API_KEY HOME="$AGENT_HOME" "${agent_env[@]}" \
+    OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_MODELS_FETCH=1 DSH_TELEMETRY_DISABLED=1 "$@"

@@ -1,6 +1,6 @@
 # agent-box
 
-Esegui un agente di programmazione ([pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) o [OpenCode](https://opencode.ai)) con un modello locale, dentro un container dove **ogni connessione di rete deve essere approvata da te**.
+Esegui un agente di programmazione ([pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent), [OpenCode](https://opencode.ai) o [dsh](https://www.npmjs.com/package/@deepseek-ai/dsh)) con un modello locale, dentro un container dove **ogni connessione di rete deve essere approvata da te**.
 Ogni richiesta compare in un popup di [OpenSnitch](https://github.com/evilsocket/opensnitch) che mostra il processo vero (`curl`, `node`, …), i suoi argomenti e la destinazione.
 L'unica eccezione è il server del modello, sulla porta che indichi tu.
 
@@ -26,10 +26,13 @@ export MODEL_PORT=8080             # porta del server su 127.0.0.1 (ollama: 1143
 cd ~/un-progetto
 agent-box            # avvia pi nella cartella corrente
 agent-box opencode   # oppure OpenCode
+agent-box dsh        # oppure dsh, con l'interfaccia dsh-tui
+agent-box dsh dshline                     # dsh con l'interfaccia dshline
+agent-box dsh headless "sistema i test"   # dsh senza interfaccia: un compito e poi esce
 agent-box bash       # una shell nella stessa scatola, per provare (es. `curl https://example.com`)
 ```
 
-Al primo avvio vengono scaricate le due immagini da `ghcr.io/morrolinux` (circa 2 GB in tutto).
+Al primo avvio vengono scaricate le due immagini da `ghcr.io/morrolinux` (circa 3 GB in tutto).
 Se il download non riesce, vengono costruite in locale dal `Containerfile`: servono alcuni minuti.
 Le immagini sono firmate con cosign, puoi verificarle con:
 
@@ -45,6 +48,7 @@ Per chiudere l'interfaccia dei popup: `podman-compose -f ~/agent-box/compose.yam
 Altre variabili:
 - `MODEL_API_KEY`, se il server la richiede;
 - `MODEL_CONTEXT`: contesto del modello in token, default 32768;
+- `DSH_TUI_LANG`: lingua di dsh-tui, `en` (predefinita qui) o `zh`;
 - `ALLOW_DNS=1`: le query DNS passano senza popup.
   È più comodo, ma il DNS può servire a far uscire piccole quantità di dati: lascialo spento se vuoi vedere tutto.
 
@@ -53,6 +57,11 @@ Le risposte "sempre" vengono salvate e valgono anche ai prossimi avvii.
 Per azzerarle: `podman volume rm agent-box_rules`.
 
 All'avvio pi e OpenCode non cercano aggiornamenti e non scaricano l'elenco dei modelli: nessun popup finché l'agente non fa qualcosa.
+In dsh è spenta la telemetria (`DSH_TELEMETRY_DISABLED=1`): un feedback inviato dall'interfaccia non carica la sessione sui server di DeepSeek.
+dsh-tui e dshline sono plugin di terze parti.
+dsh-tui cerca aggiornamenti su npm a ogni avvio, senza un'opzione per evitarlo: nell'immagine questo controllo è tolto.
+
+Una sola scatola alla volta: tutte condividono la rete dell'interfaccia, e una seconda si rifiuta di partire.
 
 La cartella corrente è montata nella scatola **allo stesso percorso** ed è l'unica parte del tuo disco che l'agente vede.
 Viene rietichettata per SELinux (`:z`), per questo `agent-box` si rifiuta di partire da `/`, dalle cartelle di sistema, dalla home, dalle cartelle che la contengono e dalle sue cartelle nascoste.
@@ -80,4 +89,4 @@ Garanzie:
 
 ## Licenza
 
-MIT, vedi [LICENSE](LICENSE). OpenSnitch, pi e OpenCode, installati nelle immagini, hanno le loro licenze.
+MIT, vedi [LICENSE](LICENSE). OpenSnitch, pi, OpenCode, dsh, dsh-tui e dshline, installati nelle immagini, hanno le loro licenze.
