@@ -69,13 +69,15 @@ if [[ -n "$MODEL_ID" ]]; then
           limit: {context: $ctx, output: $out}}}}},
       model: "local/model"}' \
     > "$AGENT_HOME/.config/opencode/opencode.json"
-  # dsh reads its key only from an environment variable (JSON is valid YAML)
+  # dsh reads its key only from an environment variable (JSON is valid YAML).
+  # Effort levels map to the OpenAI `reasoning_effort` parameter ("off" sends "none").
   jq -n --arg url "$MODEL_URL" --arg id "$MODEL_ID" \
     --argjson ctx "$MODEL_CONTEXT" --argjson out "$MODEL_OUTPUT" \
     '[{id: "llm-pi-ai", config: {providers: {local: {displayName: "local", apiKeyEnv: "LOCAL_MODEL_API_KEY",
-        api: "openai-completions", baseURL: $url,
-        models: [{id: $id, name: $id, contextWindow: $ctx, maxTokens: $out}]}}}},
-      {id: "agent-default-model", config: {provider: "local", model: $id}}]' \
+        api: "openai-completions", baseURL: $url, compat: {supportsReasoningEffort: true},
+        models: [{id: $id, name: $id, contextWindow: $ctx, maxTokens: $out,
+          reasoningEfforts: {off: "none", low: "low", medium: "medium", high: "high"}}]}}}},
+      {id: "agent-default-model", config: {provider: "local", model: $id, reasoningEffort: "medium"}}]' \
     > "$AGENT_HOME/.dsh/cordis.patch.yml"
 fi
 # dsh's plugin profiles come with the image: their node_modules stay root-owned and read-only
