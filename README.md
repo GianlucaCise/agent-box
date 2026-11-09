@@ -17,7 +17,9 @@ Sull'host non va installato nient'altro: l'interfaccia di OpenSnitch gira anch'e
 ## Uso
 
 ```sh
-git clone <questo repo> ~/agent-box
+git clone git@github.com:morrolinux/agent-box.git ~/agent-box # git clone tramite ssh
+git clone https://github.com/morrolinux/agent-box.git ~/agent-box # git clone tramite https
+
 ln -s ~/agent-box/agent-box ~/.local/bin/agent-box   # facoltativo
 
 export MODEL_ID=nome-del-modello   # come lo chiama il tuo server
